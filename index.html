@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>셀러루틴 | 온라인 셀러의 필수 루틴 관리</title>
+    <!-- Tailwind CSS 4 CDN -->
+    <script src="https://unpkg.com/@tailwindcss/browser@4"></script>
+    <!-- React & Babel CDN -->
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- Google Fonts -->
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Noto+Sans+KR:wght@300;400;500;700&display=swap"
+        rel="stylesheet">
+    <style type="text/tailwindcss">
+        @theme {
+            --font-sans: 'Inter', 'Noto Sans KR', sans-serif;
+            --color-brand: #4F46E5;
+            --color-brand-light: #EEF2FF;
+            --color-surface: #FFFFFF;
+            --color-background: #F8FAFC;
+        }
+
+        body {
+            background-color: var(--color-background);
+            font-family: var(--font-sans);
+            color: #1E293B;
+        }
+
+        .glass-card {
+            background: rgba(255, 255, 255, 0.8);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            box-shadow: 0 8px 32px rgba(31, 38, 135, 0.07);
+        }
+
+        .scrollbar-hide::-webkit-scrollbar {
+            display: none;
+        }
+        
+        .animate-fade-in {
+            animation: fadeIn 0.5s ease-out;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+    </style>
+</head>
+
+<body class="antialiased">
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useMemo } = React;
+
+        // --- Custom Hooks ---
+        function useLocalStorage(key, initialValue) {
+            const [storedValue, setStoredValue] = useState(() => {
+                try {
+                    const item = window.localStorage.getItem(key);
+                    return item ? JSON.parse(item) : initialValue;
+                } catch (error) {
+                    console.error(error);
+                    return initialValue;
+                }
+            });
+
+            const setValue = (value) => {
+                try {
+                    const valueToStore = value instanceof Function ? value(storedValue) : value;
+                    setStoredValue(valueToStore);
+                    window.localStorage.setItem(key, JSON.stringify(valueToStore));
+                } catch (error) {
+                    console.error(error);
+                }
+            };
+
+            return [storedValue, setValue];
+        }
+
+        // --- Components ---
+
+        const Icon = ({ name, size = 20, className = "" }) => {
+            useEffect(() => {
+                lucide.createIcons();
+            }, [name]);
+            return <i data-lucide={name} style={{ width: size, height: size }} className={className}></i>;
+        };
+
+        const Card = ({ title, children, icon, action }) => (
+            <div className="glass-card rounded-2xl p-6 mb-6 animate-fade-in">
+                <div className="flex items-center justify-between mb-4">
+                    <div className="flex items-center gap-2">
+                        {icon && <div className="p-2 bg-brand-light text-brand rounded-lg">{icon}</div>}
+                        <h2 className="text-lg font-bold text-slate-800">{title}</h2>
+                    </div>
+                    {action && <div>{action}</div>}
+                </div>
+                {children}
+            </div>
+        );
+
+        const Badge = ({ children, color = "brand" }) => (
+            <span className={`px-2 py-1 text-xs font-medium rounded-md bg-${color}-light text-${color}`}>
+                {children}
+            </span>
+        );
+
+        // --- Main App ---
+        function App() {
+            const [activeTab, setActiveTab] = useState('daily'); // daily, ideas, keywords, registration,
+
+            // Data States
+            const [dailyTasks, setDailyTasks] = useLocalStorage('sr-daily-tasks', [
+                { id: 1, text: '주문 확인 및 배송 처리', completed: false },
+                { id: 2, text: 'CS 문의 답변 하기', completed: false },
+                { id: 3, text: '신규 상품 키워드 분석', completed: false },
+                { id: 4, text: '경쟁사 가격 모니터링', completed: false },
+                { id: 5, text: '입금확인 및 대금결제', completed: false },
+            ]);
+
+            const [productIdeas, setProductIdeas] = useLocalStorage('sr-product-ideas', []);
+            const [keywords, setKeywords] = useLocalStorage('sr-keywords', []);
+            const [regTasks, setRegTasks] = useLocalStorage('sr-reg-tasks', [
+                { id: 1, text: '상품명 키워드 최적화', completed: false },
+                { id: 2, text: '대표 이미지 고해상도 확인', completed: false },
+                { id: 3, text: '상세페이지 소구점 체크', completed: false },
+                { id: 4, text: '옵션가 및 재고 설정', completed: false },
+                { id: 5, text: '태그 및 카테고리 매칭', completed: false },
+            ]);
+
+            const [newIdea, setNewIdea] = useState('');
+            const [newKeyword, setNewKeyword] = useState('');
+
+            // Dashboard Stats
+            const stats = useMemo(() => {
+                const totalDaily = dailyTasks.length;
+                const doneDaily = dailyTasks.filter(t => t.completed).length;
+                const progress = totalDaily > 0 ? Math.round((doneDaily / totalDaily) * 100) : 0;
+                return { totalDaily, doneDaily, progress };
+            }, [dailyTasks]);
+
+            // Handlers
+            const toggleTask = (id, type) => {
+                if (type === 'daily') {
+                    setDailyTasks(prev => prev.map(t => t.id === id ? { ...t, completed: !t.completed } : t));
+                } else {
+                    setRegTasks(prev => prev.map(t => t.id === id ? { ...t, completed: !t.completed } : t));
+                }
+            };
+
+            const addIdea = () => {
+                if (!newIdea.trim()) return;
+                setProductIdeas([{ id: Date.now(), text: newIdea, date: new Date().toLocaleDateString() }, ...productIdeas]);
+                setNewIdea('');
+            };
+
+            const addKeyword = () => {
+                if (!newKeyword.trim()) return;
+                setKeywords([{ id: Date.now(), word: newKeyword, date: new Date().toLocaleDateString() }, ...keywords]);
+                setNewKeyword('');
+            };
+
+            const deleteItem = (id, type) => {
+                if (type === 'idea') setProductIdeas(prev => prev.filter(i => i.id !== id));
+                if (type === 'keyword') setKeywords(prev => prev.filter(k => k.id !== id));
+            };
+
+            return (
+                <div className="max-w-md mx-auto min-h-screen pb-24 relative bg-slate-50 shadow-2xl overflow-hidden">
+                    {/* Header */}
+                    <header className="p-6 pt-10 bg-white">
+                        <div className="flex justify-between items-center mb-6">
+                            <div>
+                                <h1 className="text-2xl font-extrabold text-slate-900 tracking-tight">셀러루틴</h1>
+                                <p className="text-sm text-slate-500">오늘도 성공적인 셀링을 응원합니다!</p>
+                            </div>
+                            <div className="w-12 h-12 bg-brand rounded-2xl flex items-center justify-center text-white shadow-lg shadow-indigo-200">
+                                <Icon name="trending-up" size={24} />
+                            </div>
+                        </div>
+
+                        {/* Weekly Dashboard Mini */}
+                        <div className="bg-brand rounded-2xl p-5 text-white shadow-xl shadow-indigo-100">
+                            <div className="flex justify-between items-end mb-3">
+                                <div>
+                                    <p className="text-indigo-100 text-xs mb-1">오늘의 실행량</p>
+                                    <h3 className="text-3xl font-bold">{stats.progress}%</h3>
+                                </div>
+                                <div className="text-right">
+                                    <p className="text-indigo-100 text-xs">완료/전체</p>
+                                    <p className="font-semibold">{stats.doneDaily} / {stats.totalDaily}</p>
+                                </div>
+                            </div>
+                            <div className="w-full bg-indigo-400/30 h-2 rounded-full overflow-hidden">
+                                <div className="bg-white h-full transition-all duration-500" style={{ width: `${stats.progress}%` }}></div>
+                            </div>
+                        </div>
+                    </header>
+
+                    {/* Content */}
+                    <main className="p-6">
+                        {activeTab === 'daily' && (
+                            <Card title="오늘의 할 일" icon={<Icon name="check-square" />}>
+                                <div className="space-y-3">
+                                    {dailyTasks.map(task => (
+                                        <div
+                                            key={task.id}
+                                            onClick={() => toggleTask(task.id, 'daily')}
+                                            className={`flex items-center p-4 rounded-xl cursor-pointer transition-all ${task.completed ? 'bg-slate-50 text-slate-400' : 'bg-white border border-slate-100 shadow-sm hover:border-brand/30'}`}
+                                        >
+                                            <div className={`w-6 h-6 rounded-lg border-2 mr-3 flex items-center justify-center transition-colors ${task.completed ? 'bg-brand border-brand' : 'border-slate-200'}`}>
+                                                {task.completed && <Icon name="check" size={16} className="text-white" />}
+                                            </div>
+                                            <span className={`text-sm font-medium ${task.completed ? 'line-through' : ''}`}>{task.text}</span>
+                                        </div>
+                                    ))}
+                                </div>
+                            </Card>
+                        )}
+
+                        {activeTab === 'ideas' && (
+                            <Card
+                                title="상품 아이디어"
+                                icon={<Icon name="lightbulb" />}
+                                action={
+                                    <div className="flex gap-2">
+                                        <input
+                                            type="text"
+                                            value={newIdea}
+                                            onChange={(e) => setNewIdea(e.target.value)}
+                                            onKeyPress={(e) => e.key === 'Enter' && addIdea()}
+                                            placeholder="아이디어 입력..."
+                                            className="text-xs p-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-brand w-32"
+                                        />
+                                        <button onClick={addIdea} className="p-2 bg-brand text-white rounded-lg"><Icon name="plus" size={16} /></button>
+                                    </div>
+                                }
+                            >
+                                <div className="grid grid-cols-1 gap-3">
+                                    {productIdeas.length === 0 ? (
+                                        <div className="text-center py-10 text-slate-400 text-sm">기록된 아이디어가 없습니다.</div>
+                                    ) : (
+                                        productIdeas.map(idea => (
+                                            <div key={idea.id} className="bg-white p-4 rounded-xl border border-slate-100 shadow-sm group relative">
+                                                <div className="flex justify-between items-start">
+                                                    <p className="text-sm font-medium text-slate-700">{idea.text}</p>
+                                                    <button onClick={() => deleteItem(idea.id, 'idea')} className="text-slate-300 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                        <Icon name="x" size={14} />
+                                                    </button>
+                                                </div>
+                                                <p className="text-[10px] text-slate-400 mt-2">{idea.date}</p>
+                                            </div>
+                                        ))
+                                    )}
+                                </div>
+                            </Card>
+                        )}
+
+                        {activeTab === 'keywords' && (
+                            <Card
+                                title="키워드 메모"
+                                icon={<Icon name="hash" />}
+                                action={
+                                    <div className="flex gap-2">
+                                        <input
+                                            type="text"
+                                            value={newKeyword}
+                                            onChange={(e) => setNewKeyword(e.target.value)}
+                                            onKeyPress={(e) => e.key === 'Enter' && addKeyword()}
+                                            placeholder="키워드..."
+                                            className="text-xs p-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-brand w-24"
+                                        />
+                                        <button onClick={addKeyword} className="p-2 bg-brand text-white rounded-lg"><Icon name="plus" size={16} /></button>
+                                    </div>
+                                }
+                            >
+                                <div className="flex flex-wrap gap-2">
+                                    {keywords.length === 0 ? (
+                                        <div className="text-center py-10 w-full text-slate-400 text-sm">중요 키워드를 기록해보세요.</div>
+                                    ) : (
+                                        keywords.map(kw => (
+                                            <div key={kw.id} className="bg-brand-light text-brand px-3 py-2 rounded-full text-xs font-bold flex items-center gap-2">
+                                                #{kw.word}
+                                                <button onClick={() => deleteItem(kw.id, 'keyword')} className="text-brand/50 hover:text-brand"><Icon name="x" size={12} /></button>
+                                            </div>
+                                        ))
+                                    )}
+                                </div>
+                            </Card>
+                        )}
+
+                        {activeTab === 'registration' && (
+                            <Card title="상품 등록 체크리스트" icon={<Icon name="clipboard-check" />}>
+                                <div className="space-y-2">
+                                    {regTasks.map(task => (
+                                        <div
+                                            key={task.id}
+                                            onClick={() => toggleTask(task.id, 'reg')}
+                                            className={`flex items-center p-3 rounded-lg cursor-pointer border ${task.completed ? 'bg-green-50 border-green-100 text-green-600' : 'bg-white border-slate-100 text-slate-600'}`}
+                                        >
+                                            <Icon name={task.completed ? "check-circle" : "circle"} size={18} className="mr-3" />
+                                            <span className="text-sm">{task.text}</span>
+                                        </div>
+                                    ))}
+                                </div>
+                                <div className="mt-4 p-4 bg-amber-50 rounded-xl border border-amber-100">
+                                    <div className="flex gap-2 items-center text-amber-800 mb-1">
+                                        <Icon name="alert-circle" size={14} />
+                                        <p className="text-xs font-bold">등록 전 필수 확인!</p>
+                                    </div>
+                                    <p className="text-[11px] text-amber-700 leading-relaxed">
+                                        상세페이지의 첫 3초가 전환율을 결정합니다. <br />
+                                        가장 강력한 소구점이 상단에 위치했는지 확인하세요.
+                                    </p>
+                                </div>
+                            </Card>
+                        )}
+                    </main>
+
+                    {/* Bottom Navigation */}
+                    <nav className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-md bg-white/80 backdrop-blur-md border-t border-slate-100 px-6 py-3 flex justify-between items-center z-50">
+                        <button
+                            onClick={() => setActiveTab('daily')}
+                            className={`flex flex-col items-center gap-1 ${activeTab === 'daily' ? 'text-brand' : 'text-slate-400'}`}
+                        >
+                            <Icon name="calendar" size={20} />
+                            <span className="text-[10px] font-bold">할일</span>
+                        </button>
+                        <button
+                            onClick={() => setActiveTab('ideas')}
+                            className={`flex flex-col items-center gap-1 ${activeTab === 'ideas' ? 'text-brand' : 'text-slate-400'}`}
+                        >
+                            <Icon name="lightbulb" size={20} />
+                            <span className="text-[10px] font-bold">아이디어</span>
+                        </button>
+                        <div className="relative -top-6">
+                            <button className="w-14 h-14 bg-brand text-white rounded-full shadow-lg shadow-indigo-300 flex items-center justify-center border-4 border-slate-50">
+                                <Icon name="plus" size={28} />
+                            </button>
+                        </div>
+                        <button
+                            onClick={() => setActiveTab('keywords')}
+                            className={`flex flex-col items-center gap-1 ${activeTab === 'keywords' ? 'text-brand' : 'text-slate-400'}`}
+                        >
+                            <Icon name="hash" size={20} />
+                            <span className="text-[10px] font-bold">키워드</span>
+                        </button>
+                        <button
+                            onClick={() => setActiveTab('registration')}
+                            className={`flex flex-col items-center gap-1 ${activeTab === 'registration' ? 'text-brand' : 'text-slate-400'}`}
+                        >
+                            <Icon name="package" size={20} />
+                            <span className="text-[10px] font-bold">등록</span>
+                        </button>
+                    </nav>
+                </div>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+
+</html>
