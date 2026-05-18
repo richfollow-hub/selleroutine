@@ -183,6 +183,8 @@
             useEffect(() => {
                 async function syncWithSupabase() {
                     try {
+                        let isHabitSyncSuccess = true;
+
                         // 1. Fetch daily tasks
                         let { data: dbDaily, error: errDaily } = await supabaseClient
                             .from('daily_tasks')
@@ -224,11 +226,74 @@
                             else dbReg = defaultRegTasks;
                         }
 
+                        // --- 5. Fetch Habits from Supabase ---
+                        let dbHabits = [];
+                        try {
+                            let { data, error } = await supabaseClient
+                                .from('habits')
+                                .select('*')
+                                .order('id', { ascending: true });
+                            if (error) throw error;
+                            dbHabits = data;
+
+                            // If DB is empty, seed it with default habits
+                            if (dbHabits.length === 0) {
+                                const { error: seedErr } = await supabaseClient.from('habits').insert(
+                                    defaultHabits.map(h => ({
+                                        id: h.id,
+                                        text: h.text,
+                                        is_default: h.isDefault,
+                                        link_to: h.linkTo || null
+                                    }))
+                                );
+                                if (seedErr) console.error("Error seeding habits:", seedErr);
+                                else dbHabits = defaultHabits;
+                            } else {
+                                // Map DB format to UI state format
+                                dbHabits = dbHabits.map(h => ({
+                                    id: Number(h.id),
+                                    text: h.text,
+                                    isDefault: h.is_default,
+                                    linkTo: h.link_to
+                                }));
+                            }
+                        } catch (errHabit) {
+                            console.warn("Habits table sync skipped (Table may not exist):", errHabit.message || errHabit);
+                            isHabitSyncSuccess = false;
+                        }
+
+                        // --- 6. Fetch Habit Records from Supabase ---
+                        let dbRecordsMap = {};
+                        if (isHabitSyncSuccess) {
+                            try {
+                                let { data, error } = await supabaseClient
+                                    .from('habit_records')
+                                    .select('*');
+                                if (error) throw error;
+
+                                data.forEach(row => {
+                                    if (!dbRecordsMap[row.date]) {
+                                        dbRecordsMap[row.date] = [];
+                                    }
+                                    dbRecordsMap[row.date].push(Number(row.habit_id));
+                                });
+                            } catch (errRec) {
+                                console.warn("Habit records table sync skipped (Table may not exist):", errRec.message || errRec);
+                                isHabitSyncSuccess = false;
+                            }
+                        }
+
                         // Success! Update local states (also updates localStorage mirror)
                         setDailyTasks(dbDaily);
                         setProductIdeas(dbIdeas);
                         setKeywords(dbKeywords);
                         setRegTasks(dbReg);
+
+                        if (isHabitSyncSuccess) {
+                            setHabits(dbHabits);
+                            setHabitRecords(dbRecordsMap);
+                        }
+
                         setSyncStatus('online');
                     } catch (err) {
                         console.warn("Supabase load failed. Operating in Local Mode:", err.message || err);
@@ -340,31 +405,77 @@
             }, [selectedDate]);
 
             // Handlers
-            const handleToggleHabit = (habitId) => {
-                setHabitRecords(prev => {
-                    const currentCompleted = prev[selectedDate] || [];
-                    let nextCompleted;
-                    if (currentCompleted.includes(habitId)) {
-                        nextCompleted = currentCompleted.filter(id => id !== habitId);
-                    } else {
-                        nextCompleted = [...currentCompleted, habitId];
+            const handleToggleHabit = async (habitId) => {
+                const completedIds = habitRecords[selectedDate] || [];
+                const isCompleted = completedIds.includes(habitId);
+                let nextCompleted;
+                if (isCompleted) {
+                    nextCompleted = completedIds.filter(id => id !== habitId);
+                } else {
+                    nextCompleted = [...completedIds, habitId];
+                }
+
+                // 1. Update React Local state
+                setHabitRecords(prev => ({ ...prev, [selectedDate]: nextCompleted }));
+
+                // 2. Sync with Supabase (if online)
+                if (syncStatus === 'online') {
+                    try {
+                        if (isCompleted) {
+                            const { error } = await supabaseClient
+                                .from('habit_records')
+                                .delete()
+                                .eq('date', selectedDate)
+                                .eq('habit_id', habitId);
+                            if (error) console.warn("Supabase record delete failed (It's OK if tables not created yet):", error.message);
+                        } else {
+                            const { error } = await supabaseClient
+                                .from('habit_records')
+                                .insert({
+                                    date: selectedDate,
+                                    habit_id: habitId
+                                });
+                            if (error) console.warn("Supabase record insert failed (It's OK if tables not created yet):", error.message);
+                        }
+                    } catch (err) {
+                        console.warn("Supabase record toggle error:", err);
                     }
-                    return { ...prev, [selectedDate]: nextCompleted };
-                });
+                }
             };
 
-            const handleAddHabit = () => {
+            const handleAddHabit = async () => {
                 if (!newHabitText.trim()) return;
                 const newHabit = {
                     id: Date.now(),
                     text: newHabitText.trim(),
-                    isDefault: false
+                    isDefault: false,
+                    linkTo: null
                 };
+
+                // 1. Update React local state
                 setHabits([...habits, newHabit]);
                 setNewHabitText('');
+
+                // 2. Sync with Supabase (if online)
+                if (syncStatus === 'online') {
+                    try {
+                        const { error } = await supabaseClient
+                            .from('habits')
+                            .insert({
+                                id: newHabit.id,
+                                text: newHabit.text,
+                                is_default: newHabit.isDefault,
+                                link_to: newHabit.linkTo
+                            });
+                        if (error) console.warn("Supabase habit insert failed (It's OK if tables not created yet):", error.message);
+                    } catch (err) {
+                        console.warn("Supabase habit add error:", err);
+                    }
+                }
             };
 
-            const handleDeleteHabit = (habitId) => {
+            const handleDeleteHabit = async (habitId) => {
+                // 1. Update React local state
                 setHabits(prev => prev.filter(h => h.id !== habitId));
                 setHabitRecords(prev => {
                     const updated = { ...prev };
@@ -373,6 +484,25 @@
                     });
                     return updated;
                 });
+
+                // 2. Sync with Supabase (if online)
+                if (syncStatus === 'online') {
+                    try {
+                        const { error: errHabit } = await supabaseClient
+                            .from('habits')
+                            .delete()
+                            .eq('id', habitId);
+                        if (errHabit) console.warn("Supabase habit delete failed:", errHabit.message);
+
+                        const { error: errRecords } = await supabaseClient
+                            .from('habit_records')
+                            .delete()
+                            .eq('habit_id', habitId);
+                        if (errRecords) console.warn("Supabase records clear failed:", errRecords.message);
+                    } catch (err) {
+                        console.warn("Supabase habit delete error:", err);
+                    }
+                }
             };
 
             const handleStartEditHabit = (habit) => {
@@ -380,11 +510,28 @@
                 setEditingHabitText(habit.text);
             };
 
-            const handleSaveEditHabit = () => {
+            const handleSaveEditHabit = async () => {
                 if (!editingHabitText.trim()) return;
+                
+                // 1. Update React local state
                 setHabits(prev => prev.map(h => h.id === editingHabitId ? { ...h, text: editingHabitText.trim() } : h));
+                
+                const tempId = editingHabitId;
                 setEditingHabitId(null);
                 setEditingHabitText('');
+
+                // 2. Sync with Supabase (if online)
+                if (syncStatus === 'online') {
+                    try {
+                        const { error } = await supabaseClient
+                            .from('habits')
+                            .update({ text: editingHabitText.trim() })
+                            .eq('id', tempId);
+                        if (error) console.warn("Supabase habit update failed:", error.message);
+                    } catch (err) {
+                        console.warn("Supabase habit edit error:", err);
+                    }
+                }
             };
 
             const handleCancelEditHabit = () => {
