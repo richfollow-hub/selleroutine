@@ -13,6 +13,8 @@
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <!-- Lucide Icons -->
     <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- Supabase CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <!-- Google Fonts -->
     <link
         href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Noto+Sans+KR:wght@300;400;500;700&display=swap"
@@ -59,6 +61,12 @@
 
     <script type="text/babel">
         const { useState, useEffect, useMemo } = React;
+
+        // --- Supabase Client ---
+        const { createClient } = supabase;
+        const supabaseUrl = 'https://eeotfhzrgmpoqwzmvcbx.supabase.co';
+        const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVlb3RmaHpyZ21wb3F3em12Y2J4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkwNDA1MTYsImV4cCI6MjA5NDYxNjUxNn0.WKmu1OF5ru7H_k4E2HElxj5njeMjcksQdHJIWnHfGao';
+        const supabaseClient = createClient(supabaseUrl, supabaseAnonKey);
 
         // --- Custom Hooks ---
         function useLocalStorage(key, initialValue) {
@@ -113,31 +121,122 @@
             </span>
         );
 
+        // --- Date & Week Helpers ---
+        const getFormattedDateStr = (date) => {
+            const yyyy = date.getFullYear();
+            const mm = String(date.getMonth() + 1).padStart(2, '0');
+            const dd = String(date.getDate()).padStart(2, '0');
+            return `${yyyy}-${mm}-${dd}`;
+        };
+
+        const getWeekDates = (baseDateStr) => {
+            const baseDate = new Date(baseDateStr);
+            const dayOfWeek = baseDate.getDay(); // 0 is Sunday, 1 is Monday...
+            const adjustedDay = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+            
+            const monday = new Date(baseDate);
+            monday.setDate(baseDate.getDate() - adjustedDay);
+            
+            const week = [];
+            for (let i = 0; i < 7; i++) {
+                const day = new Date(monday);
+                day.setDate(monday.getDate() + i);
+                week.push(day);
+            }
+            return week;
+        };
+
         // --- Main App ---
         function App() {
             const [activeTab, setActiveTab] = useState('daily'); // daily, ideas, keywords, registration,
 
-            // Data States
-            const [dailyTasks, setDailyTasks] = useLocalStorage('sr-daily-tasks', [
+            // Sync status
+            const [syncStatus, setSyncStatus] = useState('connecting'); // connecting, online, local
+
+            // Default lists for seeding
+            const defaultDailyTasks = [
                 { id: 1, text: '주문 확인 및 배송 처리', completed: false },
                 { id: 2, text: 'CS 문의 답변 하기', completed: false },
                 { id: 3, text: '신규 상품 키워드 분석', completed: false },
                 { id: 4, text: '경쟁사 가격 모니터링', completed: false },
                 { id: 5, text: '입금확인 및 결제', completed: false },
-            ]);
+            ];
 
-            const [productIdeas, setProductIdeas] = useLocalStorage('sr-product-ideas', []);
-            const [keywords, setKeywords] = useLocalStorage('sr-keywords', []);
-            const [regTasks, setRegTasks] = useLocalStorage('sr-reg-tasks', [
+            const defaultRegTasks = [
                 { id: 1, text: '상품명 키워드 최적화', completed: false },
                 { id: 2, text: '대표 이미지 고해상도 확인', completed: false },
                 { id: 3, text: '상세페이지 소구점 체크', completed: false },
                 { id: 4, text: '옵션가 및 재고 설정', completed: false },
                 { id: 5, text: '태그 및 카테고리 매칭', completed: false },
-            ]);
+            ];
+
+            // Data States
+            const [dailyTasks, setDailyTasks] = useLocalStorage('sr-daily-tasks', defaultDailyTasks);
+            const [productIdeas, setProductIdeas] = useLocalStorage('sr-product-ideas', []);
+            const [keywords, setKeywords] = useLocalStorage('sr-keywords', []);
+            const [regTasks, setRegTasks] = useLocalStorage('sr-reg-tasks', defaultRegTasks);
 
             const [newIdea, setNewIdea] = useState('');
             const [newKeyword, setNewKeyword] = useState('');
+
+            // Supabase Initial Synchronizer
+            useEffect(() => {
+                async function syncWithSupabase() {
+                    try {
+                        // 1. Fetch daily tasks
+                        let { data: dbDaily, error: errDaily } = await supabaseClient
+                            .from('daily_tasks')
+                            .select('*')
+                            .order('id', { ascending: true });
+                        if (errDaily) throw errDaily;
+
+                        // 2. Fetch product ideas
+                        let { data: dbIdeas, error: errIdeas } = await supabaseClient
+                            .from('product_ideas')
+                            .select('*')
+                            .order('id', { ascending: false });
+                        if (errIdeas) throw errIdeas;
+
+                        // 3. Fetch keywords
+                        let { data: dbKeywords, error: errKeywords } = await supabaseClient
+                            .from('keywords')
+                            .select('*')
+                            .order('id', { ascending: false });
+                        if (errKeywords) throw errKeywords;
+
+                        // 4. Fetch reg tasks
+                        let { data: dbReg, error: errReg } = await supabaseClient
+                            .from('reg_tasks')
+                            .select('*')
+                            .order('id', { ascending: true });
+                        if (errReg) throw errReg;
+
+                        // If DB is completely empty (e.g. freshly created tables), seed it with default items
+                        if (dbDaily.length === 0) {
+                            const { error: seedErr } = await supabaseClient.from('daily_tasks').insert(defaultDailyTasks);
+                            if (seedErr) console.error("Error seeding daily tasks:", seedErr);
+                            else dbDaily = defaultDailyTasks;
+                        }
+
+                        if (dbReg.length === 0) {
+                            const { error: seedErr } = await supabaseClient.from('reg_tasks').insert(defaultRegTasks);
+                            if (seedErr) console.error("Error seeding reg tasks:", seedErr);
+                            else dbReg = defaultRegTasks;
+                        }
+
+                        // Success! Update local states (also updates localStorage mirror)
+                        setDailyTasks(dbDaily);
+                        setProductIdeas(dbIdeas);
+                        setKeywords(dbKeywords);
+                        setRegTasks(dbReg);
+                        setSyncStatus('online');
+                    } catch (err) {
+                        console.warn("Supabase load failed. Operating in Local Mode:", err.message || err);
+                        setSyncStatus('local');
+                    }
+                }
+                syncWithSupabase();
+            }, []);
 
             // Dashboard Stats
             const stats = useMemo(() => {
@@ -147,30 +246,233 @@
                 return { totalDaily, doneDaily, progress };
             }, [dailyTasks]);
 
+            // --- Habit Tracker States ---
+            const defaultHabits = [
+                { id: 1, text: '상품 리서치 1개', isDefault: true, linkTo: 'ideas' },
+                { id: 2, text: '키워드 10개 찾기', isDefault: true, linkTo: 'keywords' },
+                { id: 3, text: '경쟁상품 3개 분석', isDefault: true, linkTo: 'ideas' },
+                { id: 4, text: '상품 1개 등록 또는 수정', isDefault: true, linkTo: 'registration' },
+                { id: 5, text: '상세페이지 1개 개선', isDefault: true, linkTo: 'registration' },
+                { id: 6, text: '리뷰/문의 확인', isDefault: true },
+                { id: 7, text: 'SNS/블로그 홍보 1개', isDefault: true },
+                { id: 8, text: '매출/방문자 수 기록', isDefault: true },
+            ];
+
+            const [habits, setHabits] = useLocalStorage('sr-habits', defaultHabits);
+            const [habitRecords, setHabitRecords] = useLocalStorage('sr-habit-records', {});
+            const [selectedDate, setSelectedDate] = useState(() => getFormattedDateStr(new Date()));
+            
+            const [newHabitText, setNewHabitText] = useState('');
+            const [isManageMode, setIsManageMode] = useState(false);
+            const [editingHabitId, setEditingHabitId] = useState(null);
+            const [editingHabitText, setEditingHabitText] = useState('');
+            const [isQuickAddOpen, setIsQuickAddOpen] = useState(false);
+
+            // Today's Date String
+            const todayStr = useMemo(() => {
+                return getFormattedDateStr(new Date());
+            }, []);
+
+            // Today's Progress
+            const todayProgress = useMemo(() => {
+                const todayCompleted = habitRecords[todayStr] || [];
+                const totalHabits = habits.length;
+                return totalHabits > 0 ? Math.round((todayCompleted.length / totalHabits) * 100) : 0;
+            }, [habitRecords, habits, todayStr]);
+
+            // Streak Count
+            const streak = useMemo(() => {
+                let count = 0;
+                let checkDate = new Date();
+                checkDate.setHours(0,0,0,0);
+                
+                let currentTodayStr = getFormattedDateStr(checkDate);
+                let hasCompletedToday = habitRecords[currentTodayStr] && habitRecords[currentTodayStr].length > 0;
+                
+                if (!hasCompletedToday) {
+                    checkDate.setDate(checkDate.getDate() - 1);
+                    let yesterdayStr = getFormattedDateStr(checkDate);
+                    let hasCompletedYesterday = habitRecords[yesterdayStr] && habitRecords[yesterdayStr].length > 0;
+                    if (!hasCompletedYesterday) {
+                        return 0;
+                    }
+                }
+                
+                while (true) {
+                    let dateStr = getFormattedDateStr(checkDate);
+                    if (habitRecords[dateStr] && habitRecords[dateStr].length > 0) {
+                        count++;
+                        checkDate.setDate(checkDate.getDate() - 1);
+                    } else {
+                        break;
+                    }
+                }
+                return count;
+            }, [habitRecords]);
+
+            // Weekly Execution Score
+            const weeklyScore = useMemo(() => {
+                const today = new Date();
+                today.setHours(0,0,0,0);
+                
+                const weekDates = getWeekDates(getFormattedDateStr(today));
+                
+                let totalDaysEvaluated = 0;
+                let sumPercentages = 0;
+                
+                weekDates.forEach(date => {
+                    if (date <= today) {
+                        const dateStr = getFormattedDateStr(date);
+                        const completedIds = habitRecords[dateStr] || [];
+                        const totalHabits = habits.length;
+                        const dailyProgress = totalHabits > 0 ? (completedIds.length / totalHabits) * 100 : 0;
+                        sumPercentages += dailyProgress;
+                        totalDaysEvaluated++;
+                    }
+                });
+                
+                return totalDaysEvaluated > 0 ? Math.round(sumPercentages / totalDaysEvaluated) : 0;
+            }, [habitRecords, habits]);
+
+            // Get selected week dates
+            const weekDates = useMemo(() => {
+                return getWeekDates(selectedDate);
+            }, [selectedDate]);
+
             // Handlers
-            const toggleTask = (id, type) => {
+            const handleToggleHabit = (habitId) => {
+                setHabitRecords(prev => {
+                    const currentCompleted = prev[selectedDate] || [];
+                    let nextCompleted;
+                    if (currentCompleted.includes(habitId)) {
+                        nextCompleted = currentCompleted.filter(id => id !== habitId);
+                    } else {
+                        nextCompleted = [...currentCompleted, habitId];
+                    }
+                    return { ...prev, [selectedDate]: nextCompleted };
+                });
+            };
+
+            const handleAddHabit = () => {
+                if (!newHabitText.trim()) return;
+                const newHabit = {
+                    id: Date.now(),
+                    text: newHabitText.trim(),
+                    isDefault: false
+                };
+                setHabits([...habits, newHabit]);
+                setNewHabitText('');
+            };
+
+            const handleDeleteHabit = (habitId) => {
+                setHabits(prev => prev.filter(h => h.id !== habitId));
+                setHabitRecords(prev => {
+                    const updated = { ...prev };
+                    Object.keys(updated).forEach(date => {
+                        updated[date] = updated[date].filter(id => id !== habitId);
+                    });
+                    return updated;
+                });
+            };
+
+            const handleStartEditHabit = (habit) => {
+                setEditingHabitId(habit.id);
+                setEditingHabitText(habit.text);
+            };
+
+            const handleSaveEditHabit = () => {
+                if (!editingHabitText.trim()) return;
+                setHabits(prev => prev.map(h => h.id === editingHabitId ? { ...h, text: editingHabitText.trim() } : h));
+                setEditingHabitId(null);
+                setEditingHabitText('');
+            };
+
+            const handleCancelEditHabit = () => {
+                setEditingHabitId(null);
+                setEditingHabitText('');
+            };
+
+            const toggleTask = async (id, type) => {
                 if (type === 'daily') {
-                    setDailyTasks(prev => prev.map(t => t.id === id ? { ...t, completed: !t.completed } : t));
+                    const task = dailyTasks.find(t => t.id === id);
+                    if (!task) return;
+                    const nextCompleted = !task.completed;
+
+                    setDailyTasks(prev => prev.map(t => t.id === id ? { ...t, completed: nextCompleted } : t));
+
+                    if (syncStatus === 'online') {
+                        const { error } = await supabaseClient
+                            .from('daily_tasks')
+                            .update({ completed: nextCompleted })
+                            .eq('id', id);
+                        if (error) console.error("Supabase update error (daily_tasks):", error);
+                    }
                 } else {
-                    setRegTasks(prev => prev.map(t => t.id === id ? { ...t, completed: !t.completed } : t));
+                    const task = regTasks.find(t => t.id === id);
+                    if (!task) return;
+                    const nextCompleted = !task.completed;
+
+                    setRegTasks(prev => prev.map(t => t.id === id ? { ...t, completed: nextCompleted } : t));
+
+                    if (syncStatus === 'online') {
+                        const { error } = await supabaseClient
+                            .from('reg_tasks')
+                            .update({ completed: nextCompleted })
+                            .eq('id', id);
+                        if (error) console.error("Supabase update error (reg_tasks):", error);
+                    }
                 }
             };
 
-            const addIdea = () => {
+            const addIdea = async () => {
                 if (!newIdea.trim()) return;
-                setProductIdeas([{ id: Date.now(), text: newIdea, date: new Date().toLocaleDateString() }, ...productIdeas]);
+                const ideaObj = {
+                    id: Date.now(),
+                    text: newIdea,
+                    date: new Date().toLocaleDateString()
+                };
+
+                setProductIdeas([ideaObj, ...productIdeas]);
                 setNewIdea('');
+
+                if (syncStatus === 'online') {
+                    const { error } = await supabaseClient.from('product_ideas').insert(ideaObj);
+                    if (error) console.error("Supabase insert error (product_ideas):", error);
+                }
             };
 
-            const addKeyword = () => {
+            const addKeyword = async () => {
                 if (!newKeyword.trim()) return;
-                setKeywords([{ id: Date.now(), word: newKeyword, date: new Date().toLocaleDateString() }, ...keywords]);
+                const keywordObj = {
+                    id: Date.now(),
+                    word: newKeyword,
+                    date: new Date().toLocaleDateString()
+                };
+
+                setKeywords([keywordObj, ...keywords]);
                 setNewKeyword('');
+
+                if (syncStatus === 'online') {
+                    const { error } = await supabaseClient.from('keywords').insert(keywordObj);
+                    if (error) console.error("Supabase insert error (keywords):", error);
+                }
             };
 
-            const deleteItem = (id, type) => {
-                if (type === 'idea') setProductIdeas(prev => prev.filter(i => i.id !== id));
-                if (type === 'keyword') setKeywords(prev => prev.filter(k => k.id !== id));
+            const deleteItem = async (id, type) => {
+                if (type === 'idea') {
+                    setProductIdeas(prev => prev.filter(i => i.id !== id));
+                    if (syncStatus === 'online') {
+                        const { error } = await supabaseClient.from('product_ideas').delete().eq('id', id);
+                        if (error) console.error("Supabase delete error (product_ideas):", error);
+                    }
+                }
+                if (type === 'keyword') {
+                    setKeywords(prev => prev.filter(k => k.id !== id));
+                    if (syncStatus === 'online') {
+                        const { error } = await supabaseClient.from('keywords').delete().eq('id', id);
+                        if (error) console.error("Supabase delete error (keywords):", error);
+                    }
+                }
             };
 
             return (
@@ -179,7 +481,27 @@
                     <header className="p-6 pt-10 bg-white">
                         <div className="flex justify-between items-center mb-6">
                             <div>
-                                <h1 className="text-2xl font-extrabold text-slate-900 tracking-tight">셀러루틴</h1>
+                                <div className="flex items-center gap-2">
+                                    <h1 className="text-2xl font-extrabold text-slate-900 tracking-tight">셀러루틴</h1>
+                                    {syncStatus === 'online' && (
+                                        <span className="flex items-center gap-1 px-2 py-0.5 text-[10px] font-bold text-emerald-600 bg-emerald-50 rounded-full border border-emerald-100 animate-fade-in">
+                                            <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse"></span>
+                                            동기화 완료
+                                        </span>
+                                    )}
+                                    {syncStatus === 'connecting' && (
+                                        <span className="flex items-center gap-1 px-2 py-0.5 text-[10px] font-bold text-amber-600 bg-amber-50 rounded-full border border-amber-100 animate-fade-in">
+                                            <span className="w-1.5 h-1.5 bg-amber-500 rounded-full animate-pulse"></span>
+                                            연결 중...
+                                        </span>
+                                    )}
+                                    {syncStatus === 'local' && (
+                                        <span className="flex items-center gap-1 px-2 py-0.5 text-[10px] font-bold text-slate-500 bg-slate-100 rounded-full border border-slate-200 animate-fade-in">
+                                            <span className="w-1.5 h-1.5 bg-slate-400 rounded-full"></span>
+                                            로컬 모드
+                                        </span>
+                                    )}
+                                </div>
                                 <p className="text-sm text-slate-500">오늘도 성공적인 셀링을 응원합니다!</p>
                             </div>
                             <div className="w-12 h-12 bg-brand rounded-2xl flex items-center justify-center text-white shadow-lg shadow-indigo-200">
@@ -187,20 +509,41 @@
                             </div>
                         </div>
 
-                        {/* Weekly Dashboard Mini */}
-                        <div className="bg-brand rounded-2xl p-5 text-white shadow-xl shadow-indigo-100">
-                            <div className="flex justify-between items-end mb-3">
-                                <div>
-                                    <p className="text-indigo-100 text-xs mb-1">오늘의 실행량</p>
-                                    <h3 className="text-3xl font-bold">{stats.progress}%</h3>
+                        {/* Premium Habit Dashboard Stats */}
+                        <div className="bg-gradient-to-br from-indigo-600 via-indigo-700 to-violet-800 rounded-3xl p-5 text-white shadow-xl shadow-indigo-200 relative overflow-hidden">
+                            {/* Decorative glowing background circles */}
+                            <div className="absolute -right-10 -top-10 w-36 h-36 bg-white/10 rounded-full blur-xl pointer-events-none"></div>
+                            <div className="absolute -left-10 -bottom-10 w-28 h-28 bg-brand-light/10 rounded-full blur-lg pointer-events-none"></div>
+
+                            <div className="grid grid-cols-3 gap-2 text-center divider-x divide-indigo-500/30">
+                                {/* Stat 1: Today's Completion Rate */}
+                                <div className="flex flex-col items-center justify-center p-1">
+                                    <p className="text-indigo-200 text-[10px] font-bold mb-1">오늘 완료율</p>
+                                    <h4 className="text-2xl font-black tracking-tight">{todayProgress}%</h4>
+                                    <div className="w-12 bg-white/20 h-1 rounded-full mt-2 overflow-hidden">
+                                        <div className="bg-emerald-400 h-full transition-all duration-500" style={{ width: `${todayProgress}%` }}></div>
+                                    </div>
                                 </div>
-                                <div className="text-right">
-                                    <p className="text-indigo-100 text-xs">완료/전체</p>
-                                    <p className="font-semibold">{stats.doneDaily} / {stats.totalDaily}</p>
+
+                                {/* Stat 2: Streak */}
+                                <div className="flex flex-col items-center justify-center border-x border-indigo-400/20 p-1">
+                                    <p className="text-indigo-200 text-[10px] font-bold mb-1">연속 달성</p>
+                                    <div className="flex items-center gap-0.5">
+                                        <span className="text-xl font-black text-amber-300 animate-pulse">🔥</span>
+                                        <h4 className="text-2xl font-black tracking-tight">{streak}일</h4>
+                                    </div>
+                                    <p className="text-[9px] text-indigo-200/80 mt-1 font-semibold">매일 실천 중!</p>
                                 </div>
-                            </div>
-                            <div className="w-full bg-indigo-400/30 h-2 rounded-full overflow-hidden">
-                                <div className="bg-white h-full transition-all duration-500" style={{ width: `${stats.progress}%` }}></div>
+
+                                {/* Stat 3: Weekly Execution Score */}
+                                <div className="flex flex-col items-center justify-center p-1">
+                                    <p className="text-indigo-200 text-[10px] font-bold mb-1">이번주 점수</p>
+                                    <div className="flex items-center gap-0.5">
+                                        <span className="text-lg font-bold text-yellow-300">⭐</span>
+                                        <h4 className="text-2xl font-black tracking-tight">{weeklyScore}점</h4>
+                                    </div>
+                                    <p className="text-[9px] text-indigo-200/80 mt-1 font-semibold">성장 궤도 진입</p>
+                                </div>
                             </div>
                         </div>
                     </header>
@@ -208,22 +551,205 @@
                     {/* Content */}
                     <main className="p-6">
                         {activeTab === 'daily' && (
-                            <Card title="오늘의 할 일" icon={<Icon name="check-square" />}>
-                                <div className="space-y-3">
-                                    {dailyTasks.map(task => (
-                                        <div
-                                            key={task.id}
-                                            onClick={() => toggleTask(task.id, 'daily')}
-                                            className={`flex items-center p-4 rounded-xl cursor-pointer transition-all ${task.completed ? 'bg-slate-50 text-slate-400' : 'bg-white border border-slate-100 shadow-sm hover:border-brand/30'}`}
-                                        >
-                                            <div className={`w-6 h-6 rounded-lg border-2 mr-3 flex items-center justify-center transition-colors ${task.completed ? 'bg-brand border-brand' : 'border-slate-200'}`}>
-                                                {task.completed && <Icon name="check" size={16} className="text-white" />}
-                                            </div>
-                                            <span className={`text-sm font-medium ${task.completed ? 'line-through' : ''}`}>{task.text}</span>
-                                        </div>
-                                    ))}
+                            <div className="space-y-4 animate-fade-in">
+                                {/* Weekly Calendar Grid Card */}
+                                <div className="bg-white rounded-2xl p-4 border border-slate-100 shadow-sm">
+                                    <div className="flex justify-between items-center mb-3">
+                                        <h3 className="text-sm font-bold text-slate-800 flex items-center gap-1.5">
+                                            <Icon name="calendar-days" size={16} className="text-brand" />
+                                            주간 달성 현황
+                                        </h3>
+                                        {selectedDate !== todayStr && (
+                                            <button 
+                                                onClick={() => setSelectedDate(todayStr)}
+                                                className="text-[11px] font-bold text-brand bg-brand-light px-2.5 py-1 rounded-lg hover:bg-brand hover:text-white transition-all"
+                                            >
+                                                오늘로 이동
+                                            </button>
+                                        )}
+                                    </div>
+                                    <div className="grid grid-cols-7 gap-1">
+                                        {weekDates.map(date => {
+                                            const dateStr = getFormattedDateStr(date);
+                                            const isSelected = dateStr === selectedDate;
+                                            const isToday = dateStr === todayStr;
+                                            
+                                            // Calculate completion rate for this day
+                                            const completedIds = habitRecords[dateStr] || [];
+                                            const progressRate = habits.length > 0 ? (completedIds.length / habits.length) * 100 : 0;
+                                            
+                                            const daysKorean = ['일', '월', '화', '수', '목', '금', '토'];
+                                            const dayLabel = daysKorean[date.getDay()];
+                                            const dayNum = date.getDate();
+                                            
+                                            return (
+                                                <div 
+                                                    key={dateStr}
+                                                    onClick={() => setSelectedDate(dateStr)}
+                                                    className={`flex flex-col items-center p-2 rounded-xl cursor-pointer transition-all ${
+                                                        isSelected 
+                                                            ? 'bg-indigo-50 border border-brand/50 text-brand shadow-sm shadow-indigo-100' 
+                                                            : 'hover:bg-slate-50 border border-transparent'
+                                                    }`}
+                                                >
+                                                    <span className={`text-[10px] font-bold ${isToday ? 'text-brand' : 'text-slate-400'}`}>
+                                                        {dayLabel}
+                                                    </span>
+                                                    <span className={`text-sm font-extrabold my-1 ${isSelected ? 'text-brand' : 'text-slate-700'}`}>
+                                                        {dayNum}
+                                                    </span>
+                                                    
+                                                    {/* Completion indicator */}
+                                                    <div className="w-5 h-5 rounded-full flex items-center justify-center relative mt-0.5">
+                                                        {progressRate === 100 ? (
+                                                            <div className="w-4 h-4 rounded-full bg-emerald-500 flex items-center justify-center text-white">
+                                                                <Icon name="check" size={10} className="stroke-[3] text-white" />
+                                                            </div>
+                                                        ) : progressRate > 0 ? (
+                                                            <span className="text-[9px] font-black text-brand">
+                                                                {Math.round(progressRate)}%
+                                                            </span>
+                                                        ) : (
+                                                            <div className="w-3.5 h-3.5 rounded-full border border-slate-200 bg-white"></div>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
                                 </div>
-                            </Card>
+
+                                {/* Routines (Habit List) Card */}
+                                <Card 
+                                    title={selectedDate === todayStr ? "오늘의 핵심 루틴" : `${selectedDate.split('-')[1]}월 ${selectedDate.split('-')[2]}일 루틴`}
+                                    icon={<Icon name="check-square" />}
+                                    action={
+                                        <button 
+                                            onClick={() => setIsManageMode(!isManageMode)} 
+                                            className="text-xs font-bold text-brand bg-brand-light px-2.5 py-1 rounded-lg hover:bg-brand hover:text-white transition-all"
+                                        >
+                                            {isManageMode ? "완료" : "편집"}
+                                        </button>
+                                    }
+                                >
+                                    <div className="space-y-3">
+                                        {habits.length === 0 ? (
+                                            <div className="text-center py-8 text-slate-400 text-sm">등록된 핵심 습관이 없습니다.</div>
+                                        ) : (
+                                            habits.map(habit => {
+                                                const completedIds = habitRecords[selectedDate] || [];
+                                                const isCompleted = completedIds.includes(habit.id);
+                                                
+                                                if (editingHabitId === habit.id) {
+                                                    return (
+                                                        <div key={habit.id} className="flex items-center gap-2 w-full p-2 bg-slate-50 rounded-xl border border-slate-200 animate-fade-in">
+                                                            <input
+                                                                type="text"
+                                                                value={editingHabitText}
+                                                                onChange={(e) => setEditingHabitText(e.target.value)}
+                                                                onKeyPress={(e) => e.key === 'Enter' && handleSaveEditHabit()}
+                                                                className="flex-1 text-sm p-2 border border-slate-200 bg-white rounded-lg focus:outline-none focus:ring-1 focus:ring-brand"
+                                                                autoFocus
+                                                            />
+                                                            <button onClick={handleSaveEditHabit} className="p-2 bg-brand text-white rounded-lg hover:bg-indigo-700">
+                                                                <Icon name="check" size={14} />
+                                                            </button>
+                                                            <button onClick={handleCancelEditHabit} className="p-2 bg-slate-200 text-slate-600 rounded-lg hover:bg-slate-300">
+                                                                <Icon name="x" size={14} />
+                                                            </button>
+                                                        </div>
+                                                    );
+                                                }
+
+                                                return (
+                                                    <div
+                                                        key={habit.id}
+                                                        onClick={() => !isManageMode && handleToggleHabit(habit.id)}
+                                                        className={`flex items-center p-4 rounded-xl cursor-pointer transition-all ${
+                                                            isCompleted && !isManageMode
+                                                                ? 'bg-slate-50 text-slate-400 border border-transparent' 
+                                                                : 'bg-white border border-slate-100 shadow-sm hover:border-brand/30'
+                                                        }`}
+                                                    >
+                                                        {!isManageMode ? (
+                                                            <div className={`w-6 h-6 rounded-lg border-2 mr-3 flex items-center justify-center transition-colors ${
+                                                                isCompleted ? 'bg-brand border-brand' : 'border-slate-200'
+                                                            }`}>
+                                                                {isCompleted && <Icon name="check" size={16} className="text-white" />}
+                                                            </div>
+                                                        ) : (
+                                                            <button 
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    handleStartEditHabit(habit);
+                                                                }}
+                                                                className="p-1.5 text-slate-400 hover:text-brand bg-slate-100 rounded-lg mr-2"
+                                                            >
+                                                                <Icon name="edit" size={14} />
+                                                            </button>
+                                                        )}
+
+                                                        <span className={`text-sm font-bold flex-1 ${isCompleted && !isManageMode ? 'line-through' : ''}`}>
+                                                            {habit.text}
+                                                        </span>
+
+                                                        {!isManageMode ? (
+                                                            habit.linkTo && (
+                                                                <button
+                                                                    onClick={(e) => {
+                                                                        e.stopPropagation();
+                                                                        setActiveTab(habit.linkTo);
+                                                                    }}
+                                                                    className="flex items-center gap-1 px-2.5 py-1 text-[10px] font-bold rounded-lg bg-indigo-50 hover:bg-brand hover:text-white text-brand transition-all whitespace-nowrap ml-2 shadow-sm border border-indigo-100/50"
+                                                                >
+                                                                    <Icon name={
+                                                                        habit.linkTo === 'ideas' ? 'lightbulb' :
+                                                                        habit.linkTo === 'keywords' ? 'hash' : 'clipboard-check'
+                                                                    } size={10} />
+                                                                    {
+                                                                        habit.linkTo === 'ideas' ? '아이디어' :
+                                                                        habit.linkTo === 'keywords' ? '키워드' : '등록체크'
+                                                                    }
+                                                                </button>
+                                                            )
+                                                        ) : (
+                                                            <button 
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    handleDeleteHabit(habit.id);
+                                                                }}
+                                                                className="p-1.5 text-slate-400 hover:text-red-500 bg-red-50 hover:bg-red-100 rounded-lg ml-2"
+                                                            >
+                                                                <Icon name="trash" size={14} />
+                                                            </button>
+                                                        )}
+                                                    </div>
+                                                );
+                                            })
+                                        )}
+                                    </div>
+
+                                    {/* Add Custom Habit Form */}
+                                    <div className="mt-4 pt-4 border-t border-slate-100">
+                                        <div className="flex gap-2">
+                                            <input
+                                                type="text"
+                                                value={newHabitText}
+                                                onChange={(e) => setNewHabitText(e.target.value)}
+                                                onKeyPress={(e) => e.key === 'Enter' && handleAddHabit()}
+                                                placeholder="새로운 판매 습관 추가..."
+                                                className="flex-1 text-xs p-3 border border-slate-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-brand bg-white"
+                                            />
+                                            <button 
+                                                onClick={handleAddHabit}
+                                                className="px-3 py-2 bg-brand hover:bg-indigo-700 text-white font-bold rounded-xl shadow-md transition-all flex items-center justify-center"
+                                            >
+                                                <Icon name="plus" size={16} />
+                                            </button>
+                                        </div>
+                                    </div>
+                                </Card>
+                            </div>
                         )}
 
                         {activeTab === 'ideas' && (
@@ -325,6 +851,57 @@
                         )}
                     </main>
 
+                    {/* Quick Add Bottom Modal */}
+                    {isQuickAddOpen && (
+                        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-[100] flex items-end justify-center p-4 animate-fade-in" onClick={() => setIsQuickAddOpen(false)}>
+                            <div className="bg-white rounded-t-3xl w-full max-w-md p-6 shadow-2xl space-y-4 translate-y-0 transition-transform duration-300 pb-8" onClick={(e) => e.stopPropagation()}>
+                                <div className="flex justify-between items-center pb-2 border-b border-slate-100">
+                                    <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2">
+                                        <Icon name="zap" className="text-amber-500 fill-amber-500 animate-bounce" size={16} />
+                                        빠른 실행 및 추가
+                                    </h3>
+                                    <button onClick={() => setIsQuickAddOpen(false)} className="text-slate-400 hover:text-slate-600">
+                                        <Icon name="x" size={18} />
+                                    </button>
+                                </div>
+                                
+                                <div className="grid grid-cols-3 gap-3 py-2">
+                                    <button 
+                                        onClick={() => {
+                                            setActiveTab('daily');
+                                            setIsManageMode(true);
+                                            setIsQuickAddOpen(false);
+                                        }}
+                                        className="flex flex-col items-center gap-2 p-4 rounded-2xl bg-indigo-50 hover:bg-brand hover:text-white text-brand transition-all shadow-sm group"
+                                    >
+                                        <Icon name="calendar" size={24} className="group-hover:scale-110 transition-transform" />
+                                        <span className="text-[11px] font-bold">새 습관</span>
+                                    </button>
+                                    <button 
+                                        onClick={() => {
+                                            setActiveTab('ideas');
+                                            setIsQuickAddOpen(false);
+                                        }}
+                                        className="flex flex-col items-center gap-2 p-4 rounded-2xl bg-indigo-50 hover:bg-brand hover:text-white text-brand transition-all shadow-sm group"
+                                    >
+                                        <Icon name="lightbulb" size={24} className="group-hover:scale-110 transition-transform" />
+                                        <span className="text-[11px] font-bold">아이디어</span>
+                                    </button>
+                                    <button 
+                                        onClick={() => {
+                                            setActiveTab('keywords');
+                                            setIsQuickAddOpen(false);
+                                        }}
+                                        className="flex flex-col items-center gap-2 p-4 rounded-2xl bg-indigo-50 hover:bg-brand hover:text-white text-brand transition-all shadow-sm group"
+                                    >
+                                        <Icon name="hash" size={24} className="group-hover:scale-110 transition-transform" />
+                                        <span className="text-[11px] font-bold">키워드</span>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
                     {/* Bottom Navigation */}
                     <nav className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-md bg-white/80 backdrop-blur-md border-t border-slate-100 px-6 py-3 flex justify-between items-center z-50">
                         <button
@@ -332,7 +909,7 @@
                             className={`flex flex-col items-center gap-1 ${activeTab === 'daily' ? 'text-brand' : 'text-slate-400'}`}
                         >
                             <Icon name="calendar" size={20} />
-                            <span className="text-[10px] font-bold">할일</span>
+                            <span className="text-[10px] font-bold">루틴</span>
                         </button>
                         <button
                             onClick={() => setActiveTab('ideas')}
@@ -342,7 +919,10 @@
                             <span className="text-[10px] font-bold">아이디어</span>
                         </button>
                         <div className="relative -top-6">
-                            <button className="w-14 h-14 bg-brand text-white rounded-full shadow-lg shadow-indigo-300 flex items-center justify-center border-4 border-slate-50">
+                            <button 
+                                onClick={() => setIsQuickAddOpen(true)}
+                                className="w-14 h-14 bg-brand text-white rounded-full shadow-lg shadow-indigo-300 flex items-center justify-center border-4 border-slate-50 hover:bg-indigo-700 transition-colors"
+                            >
                                 <Icon name="plus" size={28} />
                             </button>
                         </div>
