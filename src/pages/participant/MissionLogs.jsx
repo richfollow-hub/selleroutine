@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useAuth } from '../../context/AuthContext'
-import { getChallenges, getChallengeMembers, getParticipantLogs, getMissions } from '../../lib/api'
+import { getChallenges, getUserChallengeMemberships, getParticipantLogs, getMissions } from '../../lib/api'
 import SecureImage from '../../components/SecureImage'
 import { Calendar, Loader2, BookOpen, ExternalLink } from 'lucide-react'
 
@@ -20,13 +20,14 @@ export default function MissionLogs() {
       setLoading(true)
       const allChallenges = await getChallenges()
       
-      let myActive = null
-      for (const ch of allChallenges) {
-        const members = await getChallengeMembers(ch.id)
-        if (members.some(m => m.user_id === user.id)) {
-          myActive = ch
-          break
-        }
+      const memberships = await getUserChallengeMemberships(user.id)
+      
+      let myActive = memberships
+        .map(m => m.challenges)
+        .find(ch => ch && ch.status === 'active')
+
+      if (!myActive && memberships.length > 0) {
+        myActive = memberships[0].challenges
       }
 
       if (myActive) {

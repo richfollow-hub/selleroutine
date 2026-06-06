@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
-import { getChallenges, getChallengeMembers, getMissionLogsForDate, getMissions } from '../../lib/api'
+import { getAdminChallenges, getChallengeMembers, getMissionLogsForDate, getMissions } from '../../lib/api'
 import { 
   Users, 
   Layers, 
@@ -15,7 +15,7 @@ import {
 } from 'lucide-react'
 
 export default function AdminDashboard() {
-  const { signOut } = useAuth()
+  const { user, signOut } = useAuth()
   const [loading, setLoading] = useState(true)
   const [challenges, setChallenges] = useState([])
   const [stats, setStats] = useState({
@@ -26,13 +26,16 @@ export default function AdminDashboard() {
   })
 
   useEffect(() => {
-    loadDashboardStats()
-  }, [])
+    if (user) {
+      loadDashboardStats()
+    }
+  }, [user])
 
   async function loadDashboardStats() {
+    if (!user) return
     try {
       setLoading(true)
-      const allChallenges = await getChallenges()
+      const allChallenges = await getAdminChallenges(user.id)
       setChallenges(allChallenges)
 
       const activeChs = allChallenges.filter(c => c.status === 'active')

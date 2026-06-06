@@ -2,6 +2,16 @@
 -- Selleroutine Comprehensive Database & Storage Schema
 -- ========================================================
 
+-- Drop existing tables to prevent "relation already exists" errors on reset
+drop table if exists public.feedbacks cascade;
+drop table if exists public.mission_logs cascade;
+drop table if exists public.missions cascade;
+drop table if exists public.challenge_members cascade;
+drop table if exists public.challenges cascade;
+drop table if exists public.product_ideas cascade;
+drop table if exists public.keyword_notes cascade;
+drop table if exists public.profiles cascade;
+
 -- Enable UUID extension
 create extension if not exists "uuid-ossp";
 
@@ -326,34 +336,46 @@ insert into storage.buckets (id, name, public)
 values ('proof-images', 'proof-images', false)
 on conflict (id) do nothing;
 
--- Enable RLS on storage objects
-alter table storage.objects enable row level security;
+-- ========================================================
+-- [중요] Supabase Storage RLS 설정 안내
+-- ========================================================
+-- `storage.objects` 테이블은 시스템 소유(`supabase_admin`)이므로 SQL 에디터에서 직접 ALTER RLS 실행 시
+-- "must be owner of table objects" 권한 에러가 발생합니다.
+--
+-- 따라서 아래의 Storage 보안 정책은 Supabase 웹 콘솔의 [Storage] -> [Policies] 메뉴에서 
+-- 'proof-images' 버킷에 대해 직접 등록하시는 것을 권장합니다.
 
--- Storage SELECT Policy (Owners & Admins)
-create policy "Allow owners and admins to select proof images"
-on storage.objects for select
-using (
+/*
+-- 1) SELECT 정책 (본인 이미지 및 해당 챌린지를 만든 운영자만 조회)
+-- Policy Name: Allow owners and admins to select proof images
+-- Target: SELECT
+-- Using expression:
   bucket_id = 'proof-images' AND (
     auth.uid()::text = (storage.foldername(name))[1] OR
-    exists (
-      select 1 from public.profiles
-      where id = auth.uid() and role = 'admin'
+    (
+      exists (
+        select 1 from public.profiles
+        where id = auth.uid() and role = 'admin'
+      ) AND
+      exists (
+        select 1 from public.challenges c
+        where c.id::text = (storage.foldername(name))[2]
+          and c.created_by = auth.uid()
+      )
     )
   )
-);
 
--- Storage INSERT Policy (Owner only)
-create policy "Allow users to upload their own proof images"
-on storage.objects for insert
-with check (
+-- 2) INSERT 정책 (본인 경로에만 업로드 가능)
+-- Policy Name: Allow users to upload their own proof images
+-- Target: INSERT
+-- With check expression:
   bucket_id = 'proof-images' AND
   auth.uid()::text = (storage.foldername(name))[1]
-);
 
--- Storage DELETE Policy (Owner only)
-create policy "Allow users to delete their own proof images"
-on storage.objects for delete
-using (
+-- 3) DELETE 정책 (본인 이미지 삭제)
+-- Policy Name: Allow users to delete their own proof images
+-- Target: DELETE
+-- Using expression:
   bucket_id = 'proof-images' AND
   auth.uid()::text = (storage.foldername(name))[1]
-);
+*/

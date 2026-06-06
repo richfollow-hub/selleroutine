@@ -20,6 +20,9 @@ export const ProtectedRoute = ({ requiredRole }) => {
     if (requiredRole === 'admin') {
       return <Navigate to="/dashboard" replace />
     }
+    if (profile && profile.role === 'admin') {
+      return <Navigate to="/admin" replace />
+    }
     return <Navigate to="/" replace />
   }
 

@@ -1,14 +1,17 @@
 import { Link } from 'react-router-dom'
 import { TrendingUp, CheckCircle, Zap, MessageSquare, ArrowRight } from 'lucide-react'
+import { useAuth } from '../context/AuthContext'
 
 export default function Landing() {
+  const { profile } = useAuth()
+
   return (
     <div className="flex-1 flex flex-col justify-between bg-gradient-to-b from-slate-900 via-slate-950 to-indigo-950 text-white min-h-screen p-6 relative overflow-hidden">
       {/* Background Orbs */}
       <div className="absolute -right-20 -top-20 w-80 h-80 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none"></div>
       <div className="absolute -left-20 bottom-20 w-80 h-80 bg-violet-500/10 rounded-full blur-3xl pointer-events-none"></div>
 
-      <div className="pt-16 text-center max-w-lg mx-auto z-10">
+      <div className="pt-16 text-center max-w-lg mx-auto z-10 animate-fade-in">
         <div className="inline-flex items-center gap-2 px-3 py-1 bg-white/10 rounded-full border border-white/10 backdrop-blur-md mb-6">
           <TrendingUp className="text-indigo-400" size={14} />
           <span className="text-[10px] font-bold tracking-wider text-indigo-200 uppercase">SELLEROUTINE 챌린지</span>
@@ -58,13 +61,23 @@ export default function Landing() {
       </div>
 
       <div className="space-y-3 pb-12 max-w-sm mx-auto w-full z-10">
-        <Link 
-          to="/login"
-          className="w-full bg-gradient-to-r from-indigo-500 to-indigo-600 hover:from-indigo-600 hover:to-indigo-700 text-white font-extrabold py-4 px-6 rounded-2xl shadow-xl shadow-indigo-950/50 transition-all text-sm flex items-center justify-center gap-2"
-        >
-          챌린지 입장하기
-          <ArrowRight size={16} />
-        </Link>
+        {profile ? (
+          <Link 
+            to={profile.role === 'admin' ? "/admin" : "/dashboard"}
+            className="w-full bg-gradient-to-r from-indigo-500 to-indigo-600 hover:from-indigo-600 hover:to-indigo-700 text-white font-extrabold py-4 px-6 rounded-2xl shadow-xl shadow-indigo-950/50 transition-all text-sm flex items-center justify-center gap-2 cursor-pointer"
+          >
+            {profile.role === 'admin' ? "관리자 대시보드 이동" : "내 대시보드로 이동"}
+            <ArrowRight size={16} />
+          </Link>
+        ) : (
+          <Link 
+            to="/login"
+            className="w-full bg-gradient-to-r from-indigo-500 to-indigo-600 hover:from-indigo-600 hover:to-indigo-700 text-white font-extrabold py-4 px-6 rounded-2xl shadow-xl shadow-indigo-950/50 transition-all text-sm flex items-center justify-center gap-2 cursor-pointer"
+          >
+            챌린지 입장하기
+            <ArrowRight size={16} />
+          </Link>
+        )}
       </div>
     </div>
   )

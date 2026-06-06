@@ -31,6 +31,16 @@ export const getChallenges = async () => {
   return data
 }
 
+export const getAdminChallenges = async (adminId) => {
+  const { data, error } = await supabase
+    .from('challenges')
+    .select('*')
+    .eq('created_by', adminId)
+    .order('start_date', { ascending: false })
+  if (error) throw error
+  return data
+}
+
 export const createChallenge = async (challengeData) => {
   const { data, error } = await supabase
     .from('challenges')
@@ -58,6 +68,15 @@ export const getChallengeMembers = async (challengeId) => {
     .from('challenge_members')
     .select('*, profiles(id, name, email, role)')
     .eq('challenge_id', challengeId)
+  if (error) throw error
+  return data
+}
+
+export const getUserChallengeMemberships = async (userId) => {
+  const { data, error } = await supabase
+    .from('challenge_members')
+    .select('*, challenges(*)')
+    .eq('user_id', userId)
   if (error) throw error
   return data
 }

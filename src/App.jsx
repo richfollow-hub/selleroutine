@@ -84,7 +84,7 @@ function ParticipantLayout() {
 // --- Admin Layout (With Navigation Panel) ---
 function AdminLayout() {
   const location = useLocation()
-  const { profile } = useAuth()
+  const { profile, signOut } = useAuth()
 
   const adminNav = [
     { path: '/admin', label: '운영홈', icon: Home },
@@ -98,7 +98,7 @@ function AdminLayout() {
       
       {/* Sidebar for desktop / Top-bar for mobile */}
       <nav className="bg-white border-b md:border-b-0 md:border-r border-slate-100 w-full md:w-60 shrink-0 p-4 flex md:flex-col justify-between z-40 shadow-sm md:h-screen sticky top-0">
-        <div className="flex md:flex-col justify-between md:justify-start w-full md:space-y-8">
+        <div className="flex md:flex-col justify-between md:justify-start w-full md:space-y-8 flex-grow">
           {/* Logo */}
           <div className="flex items-center gap-2 px-2">
             <Briefcase className="text-indigo-600 shrink-0" size={20} />
@@ -127,6 +127,25 @@ function AdminLayout() {
             })}
           </div>
         </div>
+
+        {/* Profile Card & Logout for desktop */}
+        <div className="hidden md:flex flex-col border-t border-slate-100 pt-4 mt-auto">
+          <div className="flex items-center gap-2 px-2 mb-3">
+            <div className="w-8 h-8 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center font-black text-xs shrink-0">
+              {profile?.name?.charAt(0) || '관리자'}
+            </div>
+            <div className="truncate">
+              <span className="text-[11px] font-black text-slate-800 block leading-tight">{profile?.name}</span>
+              <span className="text-[9px] text-slate-400 block leading-tight truncate">{profile?.email}</span>
+            </div>
+          </div>
+          <button 
+            onClick={signOut}
+            className="w-full text-left text-[10px] font-black text-slate-400 hover:text-rose-600 px-2.5 py-2 rounded-xl hover:bg-slate-50 transition-all cursor-pointer"
+          >
+            관리자 로그아웃
+          </button>
+        </div>
       </nav>
 
       {/* Main Panel Content */}
@@ -140,12 +159,26 @@ function AdminLayout() {
 function MainAppRoutes() {
   const { profile } = useAuth()
 
+  const getLoginRedirect = () => {
+    if (!profile) return <Login />
+    return profile.role === 'admin' 
+      ? <Navigate to="/admin" replace /> 
+      : <Navigate to="/dashboard" replace />
+  }
+
+  const getSignUpRedirect = () => {
+    if (!profile) return <SignUp />
+    return profile.role === 'admin' 
+      ? <Navigate to="/admin" replace /> 
+      : <Navigate to="/dashboard" replace />
+  }
+
   return (
     <Routes>
       {/* Public Routes */}
       <Route path="/" element={<Landing />} />
-      <Route path="/login" element={profile ? <Navigate to="/dashboard" replace /> : <Login />} />
-      <Route path="/signup" element={<SignUp />} />
+      <Route path="/login" element={getLoginRedirect()} />
+      <Route path="/signup" element={getSignUpRedirect()} />
       <Route path="/reset-password" element={<ResetPassword />} />
 
       {/* Participant Guarded Routes */}

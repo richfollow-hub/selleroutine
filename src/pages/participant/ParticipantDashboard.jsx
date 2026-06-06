@@ -5,7 +5,7 @@ import {
   getChallenges, 
   getMissions, 
   getParticipantLogs, 
-  getChallengeMembers, 
+  getUserChallengeMemberships, 
   joinChallenge, 
   upsertMissionLog, 
   getFeedbacksForParticipant,
@@ -61,31 +61,21 @@ export default function ParticipantDashboard() {
     try {
       setLoading(true)
       
-      // 1. Fetch challenges
+      // 1. Fetch all challenges
       const allChallenges = await getChallenges()
       setChallenges(allChallenges)
 
-      // 2. Fetch user's membership to find the active challenge
-      let myActiveChallenge = null
-      for (const ch of allChallenges) {
-        const members = await getChallengeMembers(ch.id)
-        const isMember = members.some(m => m.user_id === user.id)
-        if (isMember && ch.status === 'active') {
-          myActiveChallenge = ch
-          break
-        }
-      }
+      // 2. Fetch user's memberships in a single optimized query
+      const memberships = await getUserChallengeMemberships(user.id)
+      
+      // Find the active challenge the user joined
+      let myActiveChallenge = memberships
+        .map(m => m.challenges)
+        .find(ch => ch && ch.status === 'active')
 
-      // Fallback to first joined if no active status found
-      if (!myActiveChallenge) {
-        for (const ch of allChallenges) {
-          const members = await getChallengeMembers(ch.id)
-          const isMember = members.some(m => m.user_id === user.id)
-          if (isMember) {
-            myActiveChallenge = ch
-            break
-          }
-        }
+      // Fallback to the first joined challenge if no active status challenge is found
+      if (!myActiveChallenge && memberships.length > 0) {
+        myActiveChallenge = memberships[0].challenges
       }
 
       if (myActiveChallenge) {
@@ -585,15 +575,25 @@ export default function ParticipantDashboard() {
                         )}
 
                         {/* Feedback Display */}
-                        {feedback && (
-                          <div className="mt-3 p-3 bg-amber-50 rounded-xl border border-amber-100/70 text-[10px] text-amber-800 animate-fade-in">
-                            <div className="flex gap-1.5 items-center font-black mb-1">
-                              <MessageSquare size={12} className="text-amber-600 fill-amber-600/10" />
-                              <span>운영진 피드백</span>
+                        {feedback && (() => {
+                          const isNewFeedback = feedback.created_at && (new Date() - new Date(feedback.created_at) < 24 * 60 * 60 * 1000);
+                          return (
+                            <div className="mt-3 p-3 bg-amber-50 rounded-xl border border-amber-100/70 text-[10px] text-amber-800 animate-fade-in">
+                              <div className="flex justify-between items-center mb-1">
+                                <div className="flex gap-1.5 items-center font-black">
+                                  <MessageSquare size={12} className="text-amber-600 fill-amber-600/10" />
+                                  <span>운영진 피드백</span>
+                                </div>
+                                {isNewFeedback && (
+                                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[8px] font-black rounded-full bg-rose-500 text-white animate-pulse">
+                                    새 피드백
+                                  </span>
+                                )}
+                              </div>
+                              <p className="leading-relaxed text-amber-700 font-medium">{feedback.comment}</p>
                             </div>
-                            <p className="leading-relaxed text-amber-700 font-medium">{feedback.comment}</p>
-                          </div>
-                        )}
+                          );
+                        })()}
 
                         <div className="mt-3 pt-3 border-t border-slate-100/50">
                           <button 

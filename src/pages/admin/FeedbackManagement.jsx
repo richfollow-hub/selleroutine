@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useAuth } from '../../context/AuthContext'
 import { 
-  getChallenges, 
+  getAdminChallenges, 
   getMissions, 
   getMissionLogsForDate, 
   createFeedback, 
@@ -50,8 +50,10 @@ export default function FeedbackManagement() {
   const [editingText, setEditingText] = useState('')
 
   useEffect(() => {
-    loadInitData()
-  }, [])
+    if (user) {
+      loadInitData()
+    }
+  }, [user])
 
   // Reload logs whenever selected challenge or date changes
   useEffect(() => {
@@ -69,9 +71,10 @@ export default function FeedbackManagement() {
   }
 
   async function loadInitData() {
+    if (!user) return
     try {
       setLoading(true)
-      const allChallenges = await getChallenges()
+      const allChallenges = await getAdminChallenges(user.id)
       setChallenges(allChallenges)
       
       const activeCh = allChallenges.find(c => c.status === 'active') || allChallenges[0]

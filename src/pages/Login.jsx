@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { AlertCircle, Loader2 } from 'lucide-react'
@@ -9,8 +9,18 @@ export default function Login() {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   
-  const { signIn } = useAuth()
+  const { signIn, profile } = useAuth()
   const navigate = useNavigate()
+
+  useEffect(() => {
+    if (profile) {
+      if (profile.role === 'admin') {
+        navigate('/admin', { replace: true })
+      } else {
+        navigate('/dashboard', { replace: true })
+      }
+    }
+  }, [profile, navigate])
 
   const handleLogin = async (e) => {
     e.preventDefault()
@@ -21,11 +31,10 @@ export default function Login() {
       setError('')
       setLoading(true)
       await signIn(email, password)
-      navigate('/dashboard')
+      // Redirection is handled in the useEffect once the profile state resolves
     } catch (err) {
       console.error(err)
       setError(err.message || '로그인에 실패했습니다. 계정 정보를 확인해주세요.')
-    } finally {
       setLoading(false)
     }
   }

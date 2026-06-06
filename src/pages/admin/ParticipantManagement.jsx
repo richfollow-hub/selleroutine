@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useAuth } from '../../context/AuthContext'
 import { 
-  getChallenges, 
+  getAdminChallenges, 
   getChallengeMembers, 
   getParticipantLogs, 
   getMissions 
@@ -19,6 +19,7 @@ import {
 } from 'lucide-react'
 
 export default function ParticipantManagement() {
+  const { user } = useAuth()
   const [loading, setLoading] = useState(true)
   const [challenges, setChallenges] = useState([])
   const [selectedChallenge, setSelectedChallenge] = useState(null)
@@ -30,13 +31,16 @@ export default function ParticipantManagement() {
   const [participantStats, setParticipantStats] = useState({})
 
   useEffect(() => {
-    loadInitData()
-  }, [])
+    if (user) {
+      loadInitData()
+    }
+  }, [user])
 
   async function loadInitData() {
+    if (!user) return
     try {
       setLoading(true)
-      const allChallenges = await getChallenges()
+      const allChallenges = await getAdminChallenges(user.id)
       setChallenges(allChallenges)
       
       const activeCh = allChallenges.find(c => c.status === 'active') || allChallenges[0]

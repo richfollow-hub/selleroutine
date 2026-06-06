@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useAuth } from '../../context/AuthContext'
 import { 
-  getChallenges, 
+  getAdminChallenges, 
   createChallenge, 
   updateChallenge, 
   getMissions, 
@@ -46,13 +46,16 @@ export default function ChallengeManagement() {
   const [missionDesc, setMissionDesc] = useState('')
 
   useEffect(() => {
-    loadChallenges()
-  }, [])
+    if (user) {
+      loadChallenges()
+    }
+  }, [user])
 
   async function loadChallenges() {
+    if (!user) return
     try {
       setLoading(true)
-      const data = await getChallenges()
+      const data = await getAdminChallenges(user.id)
       setChallenges(data)
       if (data.length > 0 && !selectedChallenge) {
         handleSelectChallenge(data[0])
